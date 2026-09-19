@@ -1,4 +1,4 @@
-.PHONY: dev dev-down migrate test lint typecheck evals golden fmt
+.PHONY: dev dev-down migrate test lint typecheck evals golden fmt seed stress serve
 
 COMPOSE = docker compose -f infra/docker/docker-compose.yml
 CORE = services/core
@@ -15,6 +15,15 @@ migrate: ## apply migrations as the `migrator` role
 
 test: ## unit + integration tests (needs a migrated database, see migrate)
 	cd $(CORE) && uv run pytest -q
+
+serve: ## run the REST API (needs a migrated database)
+	cd $(CORE) && uv run uvicorn app.main:app --reload --port 8000
+
+seed: ## populate the demo tenant (produce/herbs wholesaler) -- see app/seed.py
+	cd $(CORE) && uv run --extra dev python -m app.seed
+
+stress: ## fire concurrent load at a running API; see scripts/stress_test.py
+	cd $(CORE) && uv run --extra dev python scripts/stress_test.py
 
 lint: ## ruff + mypy (this is what CI's "Static" stage runs)
 	uv run ruff check $(CORE)
