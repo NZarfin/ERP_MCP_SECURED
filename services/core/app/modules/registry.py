@@ -12,4 +12,5 @@ from app.modules.inventory.models import location as location_models  # noqa: F4
 from app.modules.inventory.models import stock_move as stock_move_models  # noqa: F401
 from app.modules.parties.models import customer as customer_models  # noqa: F401
 from app.modules.parties.models import supplier as supplier_models  # noqa: F401
+from app.modules.purchasing.models import purchase_order as purchase_order_models  # noqa: F401
 from app.modules.sales.models import sales_order as sales_order_models  # noqa: F401
