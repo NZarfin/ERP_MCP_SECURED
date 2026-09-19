@@ -48,6 +48,7 @@ class PurchaseOrderSummary(BaseModel):
 class ListPosResult(BaseModel):
     items: list[PurchaseOrderSummary]
     total: int
+    total_value: Decimal  # sum of total_amount over every matching row, not just this page
 
 
 def _apply_filters(stmt: Select[Any], filters: ListPosFilters) -> Select[Any]:
@@ -85,10 +86,9 @@ async def list_pos(
     )
     base = _apply_filters(base, filters)
 
-    count_stmt = select(func.count()).select_from(
-        base.with_only_columns(PurchaseOrder.id).subquery()
-    )
-    total = (await session.execute(count_stmt)).scalar_one()
+    agg_subquery = base.with_only_columns(PurchaseOrder.id, PurchaseOrder.total_amount).subquery()
+    agg_stmt = select(func.count(), func.coalesce(func.sum(agg_subquery.c.total_amount), 0))
+    total, total_value_minor = (await session.execute(agg_stmt)).one()
 
     sort_column: ColumnElement[Any]
     if filters.sort == "order_date":
@@ -116,4 +116,4 @@ async def list_pos(
         )
         for order, supplier_name, line_count in rows
     ]
-    return ListPosResult(items=items, total=total)
+    return ListPosResult(items=items, total=total, total_value=from_minor_units(total_value_minor))

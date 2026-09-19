@@ -50,6 +50,7 @@ class SalesOrderSummary(BaseModel):
 class ListOrdersResult(BaseModel):
     items: list[SalesOrderSummary]
     total: int
+    total_value: Decimal  # sum of total_amount over every matching row, not just this page
 
 
 def _apply_filters(stmt: Select[Any], filters: ListOrdersFilters) -> Select[Any]:
@@ -87,8 +88,9 @@ async def list_orders(
     )
     base = _apply_filters(base, filters)
 
-    count_stmt = select(func.count()).select_from(base.with_only_columns(SalesOrder.id).subquery())
-    total = (await session.execute(count_stmt)).scalar_one()
+    agg_subquery = base.with_only_columns(SalesOrder.id, SalesOrder.total_amount).subquery()
+    agg_stmt = select(func.count(), func.coalesce(func.sum(agg_subquery.c.total_amount), 0))
+    total, total_value_minor = (await session.execute(agg_stmt)).one()
 
     sort_column: ColumnElement[Any]
     if filters.sort == "order_date":
@@ -116,4 +118,6 @@ async def list_orders(
         )
         for order, customer_name, line_count in rows
     ]
-    return ListOrdersResult(items=items, total=total)
+    return ListOrdersResult(
+        items=items, total=total, total_value=from_minor_units(total_value_minor)
+    )

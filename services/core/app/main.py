@@ -27,11 +27,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="erp-core", lifespan=lifespan)
 
-# Dev-only CORS for apps/web running on localhost:3000. Tightened (or replaced by a
-# same-origin deploy) before this goes anywhere near a real tenant.
+# Dev-only CORS for apps/web running locally. Both hostnames are listed because
+# browsers treat localhost and 127.0.0.1 as different origins. Tightened (or
+# replaced by a same-origin deploy) before this goes anywhere near a real tenant.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
