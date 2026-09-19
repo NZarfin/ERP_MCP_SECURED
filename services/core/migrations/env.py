@@ -9,11 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.config import get_settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
-
-# Import every module's models so they register on Base.metadata before autogenerate
-# or the RLS coverage test inspects it.
-from app.modules.audit import models as audit_models  # noqa: E402, F401
-from app.modules.parties.models import customer as customer_models  # noqa: E402, F401
+from app.modules import registry  # noqa: E402, F401  (registers every model on Base.metadata)
 
 config = context.config
 if config.config_file_name is not None:

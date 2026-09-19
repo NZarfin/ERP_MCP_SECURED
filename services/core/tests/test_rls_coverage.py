@@ -5,10 +5,7 @@ lacks a policy. Every table with a `tenant_id` column (per app/db/base.py's
 
 import psycopg
 from app.db.base import tenant_table_names
-
-# Import every module so its models register on Base.metadata.
-from app.modules.audit import models as _audit_models  # noqa: F401
-from app.modules.parties.models import customer as _customer_models  # noqa: F401
+from app.modules import registry  # noqa: F401  (registers every model on Base.metadata)
 
 
 def test_every_tenant_table_has_rls_enabled(migrator_conn: psycopg.Connection) -> None:
