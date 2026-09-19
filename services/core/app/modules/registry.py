@@ -8,6 +8,7 @@ module, not in two places.
 
 from app.modules.audit import models as audit_models  # noqa: F401
 from app.modules.catalog.models import product as product_models  # noqa: F401
+from app.modules.custom.models import field_definition as field_definition_models  # noqa: F401
 from app.modules.inventory.models import location as location_models  # noqa: F401
 from app.modules.inventory.models import stock_move as stock_move_models  # noqa: F401
 from app.modules.parties.models import customer as customer_models  # noqa: F401

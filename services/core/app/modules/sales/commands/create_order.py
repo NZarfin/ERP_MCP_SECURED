@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.commands.base import Command, OutboxEventDraft, ValidationFailedError
 from app.core.money import from_minor_units, to_minor_units
 from app.modules.catalog.models.product import Product
+from app.modules.custom.service import validate_custom_fields
 from app.modules.parties.models.customer import Customer
 from app.modules.sales.models.sales_order import SalesOrder, SalesOrderLine
 
@@ -33,6 +34,7 @@ class CreateOrderInput(BaseModel):
     currency: str = Field(default="EUR", min_length=3, max_length=3)
     lines: list[CreateOrderLineInput] = Field(min_length=1)
     notes: str | None = Field(default=None, max_length=2000)
+    custom: dict[str, object] = Field(default_factory=dict)
 
 
 class CreateOrderResult(BaseModel):
@@ -75,6 +77,8 @@ class CreateOrder(Command[CreateOrderInput, CreateOrderResult]):
         if missing:
             raise ValidationFailedError(f"unknown product_id(s): {sorted(missing)}")
 
+        await validate_custom_fields(self.session, self.ctx.tenant_id, "sales_order", input.custom)
+
     async def summarize(self, input: CreateOrderInput) -> str:
         return (
             f"Create draft sales order for customer {input.customer_id} ({len(input.lines)} lines)"
@@ -105,6 +109,7 @@ class CreateOrder(Command[CreateOrderInput, CreateOrderResult]):
             currency=input.currency,
             total_amount=0,
             notes=input.notes,
+            custom=input.custom,
         )
         self.session.add(order)
         await self.session.flush()

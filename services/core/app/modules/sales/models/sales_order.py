@@ -3,6 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Date,
     DateTime,
@@ -13,10 +14,14 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TenantMixin
+
+JSONType = JSONB().with_variant(JSON(), "sqlite")
+
 
 # draft -> confirmed -> delivered
 #              \-> cancelled     (draft or confirmed can cancel; delivered cannot)
@@ -41,6 +46,7 @@ class SalesOrder(TenantMixin, Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="EUR")
     total_amount: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    custom: Mapped[dict[str, object]] = mapped_column(JSONType, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
