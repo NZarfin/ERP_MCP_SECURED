@@ -22,8 +22,15 @@ serve: ## run the REST API (needs a migrated database)
 seed: ## populate the demo tenant (produce/herbs wholesaler) -- see app/seed.py
 	cd $(CORE) && uv run --extra dev python -m app.seed
 
-stress: ## fire concurrent load at a running API; see scripts/stress_test.py
-	cd $(CORE) && uv run --extra dev python scripts/stress_test.py
+stress: ## start the API, run scripts/stress_test.py against it, tear down
+	cd $(CORE) && \
+	( uv run uvicorn app.main:app --port 8000 & echo $$! > /tmp/erp-stress-uvicorn.pid ); \
+	sleep 2; \
+	uv run --extra dev python scripts/stress_test.py; \
+	code=$$?; \
+	kill $$(cat /tmp/erp-stress-uvicorn.pid) 2>/dev/null; \
+	rm -f /tmp/erp-stress-uvicorn.pid; \
+	exit $$code
 
 lint: ## ruff + mypy (this is what CI's "Static" stage runs)
 	uv run ruff check $(CORE)
