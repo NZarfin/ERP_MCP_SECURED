@@ -1,22 +1,23 @@
-"""FastAPI app skeleton for services/core.
+"""FastAPI app for services/core.
 
-Phase 0 only wires the tenancy seam and a health check; the REST API for the web app
-(ARCHITECTURE.md §4) and the MCP gateway (services/mcp-gateway) land in later phases.
-Auth here is a placeholder `X-Tenant-Id` header -- real OAuth 2.1 / scoped tokens are
-phase 2 (ROADMAP.md). This is intentionally the *only* place a request resolves a
-tenant id, per the tenancy decision in ARCHITECTURE.md §3.
+Wires the REST API for apps/web (ARCHITECTURE.md §4). The MCP gateway
+(services/mcp-gateway) is a separate service, landing in Phase 2. Auth here is a
+placeholder `X-Tenant-Id` header -- real OAuth 2.1 / scoped tokens are Phase 2
+(ROADMAP.md). app/api/deps.py's `get_tenant_db` is the *only* place a request
+resolves a tenant id, per the tenancy decision in ARCHITECTURE.md §3.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import tenant_session
+from app.api import catalog, parties, purchasing, sales
+from app.api.deps import get_tenant_db
 
 
 @asynccontextmanager
@@ -26,16 +27,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="erp-core", lifespan=lifespan)
 
+# Dev-only CORS for apps/web running on localhost:3000. Tightened (or replaced by a
+# same-origin deploy) before this goes anywhere near a real tenant.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-async def get_tenant_db(
-    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
-) -> AsyncIterator[AsyncSession]:
-    try:
-        tenant_id = UUID(x_tenant_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="X-Tenant-Id must be a UUID") from exc
-    async with tenant_session(tenant_id) as session:
-        yield session
+app.include_router(parties.router)
+app.include_router(catalog.router)
+app.include_router(sales.router)
+app.include_router(purchasing.router)
 
 
 @app.get("/health")
