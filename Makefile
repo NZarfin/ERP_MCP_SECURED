@@ -2,6 +2,7 @@
 
 COMPOSE = docker compose -f infra/docker/docker-compose.yml
 CORE = services/core
+GATEWAY = services/mcp-gateway
 
 dev: ## bring up Postgres+pgvector, NATS, MinIO, IdP and run migrations
 	$(COMPOSE) up -d
@@ -28,9 +29,13 @@ migrate: ## apply migrations as the `migrator` role
 
 test: ## unit + integration tests (needs a migrated database, see migrate)
 	cd $(CORE) && uv run pytest -q
+	uv run pytest -q $(GATEWAY)/tests
 
 serve: ## run the REST API (needs a migrated database)
 	cd $(CORE) && uv run uvicorn app.main:app --reload --port 8000
+
+serve-gateway: ## run the MCP gateway (needs a migrated + entitled tenant, see seed)
+	cd $(GATEWAY) && uv run uvicorn gateway.main:app --reload --port 8100
 
 seed: ## populate the demo tenant (produce/herbs wholesaler) -- see app/seed.py
 	cd $(CORE) && uv run --extra dev python -m app.seed
@@ -46,16 +51,17 @@ stress: ## start the API, run scripts/stress_test.py against it, tear down
 	exit $$code
 
 lint: ## ruff + mypy (this is what CI's "Static" stage runs)
-	uv run ruff check $(CORE)
-	uv run ruff format --check $(CORE)
+	uv run ruff check $(CORE) $(GATEWAY) evals
+	uv run ruff format --check $(CORE) $(GATEWAY) evals
 	uv run mypy $(CORE)/app --config-file pyproject.toml
+	uv run mypy $(GATEWAY)/gateway --config-file pyproject.toml
 
 fmt:
-	uv run ruff format $(CORE)
-	uv run ruff check --fix $(CORE)
+	uv run ruff format $(CORE) $(GATEWAY) evals
+	uv run ruff check --fix $(CORE) $(GATEWAY) evals
 
-evals: ## MCP tool-selection evals (phase 2+; no-op until services/mcp-gateway exists)
-	@echo "no evals yet -- gateway lands in phase 2, see docs/ROADMAP.md"
+evals: ## structural MCP gateway evals: tool visibility, propose/commit, isolation, rate limits (needs a migrated database)
+	uv run pytest -q evals/test_gateway.py
 
 golden: ## document/render golden tests (phase 3+; no-op until services/renderer exists)
 	@echo "no golden tests yet -- renderer lands in phase 3, see docs/ROADMAP.md"

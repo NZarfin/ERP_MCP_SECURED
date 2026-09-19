@@ -17,11 +17,12 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           version: ${{ env.UV_VERSION }}
-      - run: uv sync --all-packages
+      - run: uv sync --all-packages --all-extras
       - run: uv pip install ruff mypy
-      - run: uv run ruff check services/core
-      - run: uv run ruff format --check services/core
+      - run: uv run ruff check services/core services/mcp-gateway evals
+      - run: uv run ruff format --check services/core services/mcp-gateway evals
       - run: uv run mypy services/core/app --config-file pyproject.toml
+      - run: uv run mypy services/mcp-gateway/gateway --config-file pyproject.toml
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -105,10 +106,14 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           version: ${{ env.UV_VERSION }}
-      - run: uv sync --all-packages
+      - run: uv sync --all-packages --all-extras
       - run: uv pip install pytest pytest-asyncio
       - run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f infra/docker/init-db.sql
       - working-directory: services/core
         run: uv run alembic upgrade head
       - working-directory: services/core
         run: uv run pytest -q
+      - name: mcp-gateway unit tests (auth, rate limit)
+        run: uv run pytest -q services/mcp-gateway/tests
+      - name: mcp-gateway evals (structural, no LLM -- see evals/test_gateway.py)
+        run: uv run pytest -q evals/test_gateway.py
