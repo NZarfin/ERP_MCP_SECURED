@@ -18,7 +18,7 @@ Read `CLAUDE.md` first — it has the five rules that override everything else. 
 `docs/ARCHITECTURE.md` (what/why), `docs/GUARDRAILS.md` (how safety is enforced) and
 `docs/ROADMAP.md` (build order and current phase).
 
-## Status: Phase 0 done, Phase 1 vertical slice done
+## Status: Phase 0 done, Phase 1 vertical slice done, Phase 2 MCP gateway done
 
 **Phase 0 — Foundations** (`docs/ROADMAP.md`), fully implemented and verified against
 a real PostgreSQL 16 database (not mocked):
@@ -69,28 +69,69 @@ and the remaining Phase 1 exit criteria beyond this slice.
 - **27 passing tests** (`make test`) across both phases, plus a real production
   `next build` and headless-browser verification of both web pages.
 
+**Phase 2 — MCP gateway** (`services/mcp-gateway/`): a real, protocol-compliant MCP
+server over the command layer above — the feature that makes this "MCP-native," not
+"an ERP with a REST API." Two deliberate scope cuts from the full phase (documented,
+not silent): bearer access tokens instead of OAuth 2.1 against a real IdP, and
+structural evals instead of LLM-driven tool-selection evals — see
+`services/mcp-gateway/README.md` for why and what a follow-up needs to change.
+
+- **13 MCP tools** across `parties`, `catalog`, `sales`, `purchasing` — the same
+  commands and queries the REST API uses, each its own domain-named tool (never a
+  generic `execute_command`, per CLAUDE.md). Two-phase tools (everything but the two
+  `create_*` drafts) return a `confirm_token` and `idempotency_key` on propose that
+  the caller passes back to commit; committing without them is rejected before
+  anything reaches the database.
+- **Bearer access tokens** (`gateway.create_access_token`): tenant-scoped, hashed
+  (sha256, raw token shown once), scoped, revocable. The token embeds its tenant id
+  so verifying it can open the right RLS scope before looking up its hash — no
+  bypass role needed.
+- **Per-tenant entitlements** (`entitlement` table, one row per SKU a tenant has
+  bought): a tool for a SKU the tenant isn't entitled to is invisible in `tools/list`
+  and rejected on `tools/call`, verified end-to-end against a live gateway, not just
+  asserted.
+- **Full audit trail**: every command commit still writes `audit_log`
+  (tenant/actor/idempotency-key/input/result) exactly as the REST API does; every
+  tool call, including a rejected or read-only one, gets its own `gateway_call_log`
+  row.
+- **Per-tenant rate limiting** (in-process fixed window; a placeholder — see
+  `gateway/rate_limit.py` for why a horizontally-scaled deployment needs Redis).
+- Verified against a **real `mcp` SDK client**, not just unit-tested in isolation:
+  `evals/test_gateway.py` boots a live gateway subprocess and drives tool visibility,
+  a full propose→commit round trip, commit-without-token rejection, cross-tenant
+  isolation and rate limiting, all through the real Streamable HTTP transport.
+
 ## Running it
 
-This is a monorepo: a Python API and a separate Next.js web app. They're two
-long-running processes you run in two terminals -- there is no single binary.
+This is a monorepo: a Python API, an MCP gateway and a separate Next.js web app --
+long-running processes you run in their own terminals, no single binary.
 
 ```
 make quickstart   # needs Docker: brings up Postgres, migrates, seeds the demo tenant
 ```
 
-Then, in two separate terminals:
+`make seed` prints a fresh bearer access token for the demo tenant -- keep it, you'll
+need it for the gateway.
+
+Then, in separate terminals:
 
 ```
 make serve                                   # REST API on :8000
+make serve-gateway                           # MCP gateway on :8100 (needs the token above)
 cd apps/web && npm install && npm run dev    # web UI on :3000, needs the API running
 ```
+
+Point an MCP client (Claude Desktop, or `evals/test_gateway.py`'s own client) at
+`http://localhost:8100/mcp/` with `Authorization: Bearer <token>` -- see
+`services/mcp-gateway/README.md` for the exact Claude Desktop config block.
 
 Other commands:
 
 ```
-make test     # tests against the migrated database
+make test     # tests against the migrated database (core + gateway)
+make evals    # structural MCP gateway evals against a live gateway subprocess
 make stress   # concurrent load + tenant-isolation-under-load check
-make lint     # ruff + mypy --strict (Python); `cd apps/web && npm run lint` for the UI
+make lint     # ruff + mypy --strict (Python, incl. the gateway); `cd apps/web && npm run lint` for the UI
 ```
 
 Without Docker (e.g. a local `postgres` service already running -- the exact

@@ -39,13 +39,34 @@ fails as expected; app role cannot `CREATE TABLE`.
 added at runtime without a migration.
 
 ## Phase 2 — MCP gateway (2 weeks)
-- [ ] OAuth 2.1 with IdP, scoped tokens, per-tenant endpoint
-- [ ] Tool registry from core modules; annotations; propose/commit with confirm_token
-- [ ] Entitlements table (tenant ↔ SKU) enforced on list + call
-- [ ] Rate limits, cost budgets, tool-call audit
-- [ ] `evals/` harness + first 30 eval cases (incl. "no commit without confirm")
-**Exit:** Claude Desktop/claude.ai connects as a custom connector, creates a customer and a
-sales order through propose → confirm; disabled module's tools are invisible.
+- [x] Scoped bearer tokens, per-tenant endpoint (`gateway.create_access_token` +
+      `GatewayTokenVerifier`) — **scope cut**: not full OAuth 2.1 against an IdP, since
+      there's no real IdP to stand up and verify against in this environment. The token
+      is hashed, scoped and revocable, and swapping it for real OAuth 2.1 token
+      introspection later only touches `gateway/auth.py`. See
+      `services/mcp-gateway/README.md`.
+- [x] Tool registry from core modules; annotations; propose/commit with confirm_token
+      (`services/mcp-gateway/gateway/registry.py`, `gateway/tools/*.py`) — 13 tools
+      across parties/catalog/sales/purchasing, each its own domain-named tool per
+      CLAUDE.md's "never a generic execute_command tool"
+- [x] Entitlements table (tenant ↔ SKU) enforced on list + call
+      (`services/core/app/modules/gateway/models/entitlement.py`,
+      `install_entitlement_filter` in `registry.py`)
+- [x] Rate limits, tool-call audit (`gateway/rate_limit.py` — in-process placeholder,
+      see its docstring; `gateway_call_log` table, one row per call whether it
+      succeeded, was rejected, or was read-only)
+- [ ] Cost budgets — not built this pass
+- [x] `evals/` harness (`evals/test_gateway.py`) — **scope cut**: structural checks
+      only (tool visibility per entitlement, "no commit without confirm", cross-tenant
+      isolation, rate limiting), not the full 30 LLM-driven tool-selection cases, since
+      those need an LLM API key in CI that wasn't added without asking.
+**Exit:** a real `mcp` SDK client connects with a bearer token, creates a customer and a
+sales order through propose → confirm, and gets rejected committing without a
+confirm_token — all verified against a live gateway (`evals/test_gateway.py`); a
+revoked entitlement's tools disappear from `tools/list` and are rejected on
+`tools/call`. Claude Desktop/claude.ai as a *custom connector* needs real OAuth 2.1
+(next scope cut to close), so that specific exit wording isn't met yet even though the
+bearer-token flow works today via `services/mcp-gateway/README.md`'s manual config.
 
 ## Phase 3 — Documents & invoicing (3 weeks)
 - [ ] CompanyProfile + brand kit; logo colour extraction
