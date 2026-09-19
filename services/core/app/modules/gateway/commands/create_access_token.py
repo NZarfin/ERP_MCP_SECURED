@@ -3,6 +3,16 @@ Desktop, claude.ai, or any MCP-compatible AI client) to authenticate as this
 tenant. Single-phase: issuing credentials isn't money/stock/document-affecting
 per GUARDRAILS.md §3's list, though it is security-sensitive -- the raw token is
 returned exactly once here and never stored; only its sha256 hash is.
+
+The token is `"<tenant_id>.<random secret>"`. This isn't decorative: the
+`access_token` table is RLS-scoped like everything else, so verifying a token
+means running a SELECT that itself requires `app.tenant_id` to already be set --
+the same chicken-and-egg every RLS-scoped multi-tenant token scheme has to solve.
+Encoding the tenant id in the token lets the verifier (services/mcp-gateway/app/auth.py)
+set the tenant context *before* looking the hash up, so RLS stays the actual
+enforcement (a token can never resolve into a different tenant than the one
+encoded in it, and the hash lookup for tenant A is structurally invisible to a
+lookup scoped to tenant B) instead of the app needing a bypass role.
 """
 
 import hashlib
@@ -58,7 +68,8 @@ class CreateAccessToken(Command[CreateAccessTokenInput, CreateAccessTokenResult]
     async def apply(
         self, input: CreateAccessTokenInput
     ) -> tuple[CreateAccessTokenResult, list[OutboxEventDraft]]:
-        raw_token = secrets.token_urlsafe(32)
+        raw_secret = secrets.token_urlsafe(32)
+        raw_token = f"{self.ctx.tenant_id}.{raw_secret}"
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
 
         token = AccessToken(

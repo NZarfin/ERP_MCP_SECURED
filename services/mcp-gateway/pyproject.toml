@@ -1,0 +1,27 @@
+[project]
+name = "erp-mcp-gateway"
+version = "0.1.0"
+description = "Single MCP endpoint per tenant; aggregates tools of enabled modules"
+requires-python = ">=3.12"
+dependencies = [
+    "erp-core",
+    "mcp>=2.2.0",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+]
+
+[tool.uv.sources]
+erp-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gateway"]
