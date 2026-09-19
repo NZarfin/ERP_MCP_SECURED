@@ -1,0 +1,48 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make dev:*)",
+      "Bash(make test:*)",
+      "Bash(make lint:*)",
+      "Bash(make evals:*)",
+      "Bash(make golden:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run alembic revision:*)",
+      "Bash(uv run alembic upgrade:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Edit(./tests/golden/**)",
+      "Write(./tests/golden/**)",
+      "Bash(terraform apply:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(kubectl:*)",
+      "Bash(helm upgrade:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|Bash",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.py\"" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/format.py\"" }
+        ]
+      }
+    ]
+  }
+}

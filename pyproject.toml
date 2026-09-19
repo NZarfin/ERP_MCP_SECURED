@@ -1,0 +1,24 @@
+[project]
+name = "erp-mcp-secured"
+version = "0.0.0"
+requires-python = ">=3.12"
+
+[tool.uv.workspace]
+members = ["services/core"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]  # FastAPI's Depends(...) default-argument idiom
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["services/core/tests", "services/core/app"]
+asyncio_mode = "auto"

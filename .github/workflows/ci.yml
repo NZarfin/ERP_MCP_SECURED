@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  UV_VERSION: "0.8.17"
+
+jobs:
+  # CICD.md stage 1
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --all-packages
+      - run: uv pip install ruff mypy
+      - run: uv run ruff check services/core
+      - run: uv run ruff format --check services/core
+      - run: uv run mypy services/core/app --config-file pyproject.toml
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # CICD.md stage 2: JSON Schema validity for anything under packages/contracts.
+  # No *.schema.json files exist yet in phase 0 (see packages/contracts/README.md),
+  # so this currently is a no-op that still proves the step is wired up.
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv pip install --system check-jsonschema
+      - name: validate schema files
+        run: |
+          shopt -s globstar nullglob
+          files=(packages/contracts/**/*.schema.json)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no schema files yet"; exit 0
+          fi
+          check-jsonschema --check-metaschema "${files[@]}"
+
+  # CICD.md stage 3
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --all-packages
+      - name: bootstrap roles (migrator / app_rw)
+        run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f infra/docker/init-db.sql
+      - name: alembic upgrade / downgrade / upgrade round trip
+        working-directory: services/core
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade -1
+          uv run alembic upgrade head
+      - name: check no migration on main was modified
+        run: |
+          git fetch origin main --depth=1
+          if git diff --name-status origin/main...HEAD -- services/core/migrations/versions plugins/*/migrations/versions | grep -E '^(M|D)'; then
+            echo "::error::a migration already on main was modified or deleted"; exit 1
+          fi
+      - name: RLS coverage
+        working-directory: services/core
+        run: uv run pytest -q tests/test_rls_coverage.py tests/test_db_roles.py
+
+  # CICD.md stage 4
+  tests:
+    needs: migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --all-packages
+      - run: uv pip install pytest pytest-asyncio
+      - run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f infra/docker/init-db.sql
+      - working-directory: services/core
+        run: uv run alembic upgrade head
+      - working-directory: services/core
+        run: uv run pytest -q
