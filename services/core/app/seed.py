@@ -30,6 +30,17 @@ from app.commands.base import Command, CommandContext
 from app.db.session import tenant_session
 from app.modules.catalog.commands.create_product import CreateProduct, CreateProductInput
 from app.modules.custom.commands.define_field import DefineField, DefineFieldInput
+from app.modules.gateway.commands.create_access_token import (
+    VALID_SCOPES,
+    CreateAccessToken,
+    CreateAccessTokenInput,
+    CreateAccessTokenResult,
+)
+from app.modules.gateway.commands.grant_entitlement import (
+    VALID_SKUS,
+    GrantEntitlement,
+    GrantEntitlementInput,
+)
 from app.modules.inventory.commands.adjust_stock import AdjustStock, AdjustStockInput
 from app.modules.inventory.commands.create_location import CreateLocation, CreateLocationInput
 from app.modules.parties.commands.create_customer import CreateCustomer, CreateCustomerInput
@@ -328,6 +339,26 @@ async def _seed_sales_orders(
             )
 
 
+async def _seed_gateway_access(ctx: CommandContext) -> str:
+    """Grants every core entitlement (all four domain modules) and issues one
+    all-scopes access token for the demo tenant -- the token an MCP client
+    (Claude Desktop, claude.ai) authenticates with. Returns the raw token.
+    """
+    async with tenant_session(ctx.tenant_id) as session:
+        for sku in VALID_SKUS:
+            await GrantEntitlement(ctx, session).execute(
+                GrantEntitlementInput(sku=sku), idempotency_key=f"seed-entitlement-{sku}"
+            )
+
+    async with tenant_session(ctx.tenant_id) as session:
+        result = await CreateAccessToken(ctx, session).execute(
+            CreateAccessTokenInput(name="seed-demo-token", scopes=list(VALID_SCOPES)),
+            idempotency_key="seed-demo-access-token",
+        )
+    assert isinstance(result, CreateAccessTokenResult)
+    return result.token
+
+
 async def main() -> None:
     rng = random.Random(SEED)
     fake = Faker("en_US")
@@ -347,8 +378,20 @@ async def main() -> None:
     await _seed_sales_orders(ctx, rng, customer_ids, product_ids)
     print("  200 sales orders")
 
+    mcp_token = await _seed_gateway_access(ctx)
+    print("  gateway entitlements granted (parties, catalog, sales, purchasing)")
+
     print("Done. X-Tenant-Id header for the API/web app:")
     print(f"  {DEMO_TENANT_ID}")
+    if mcp_token == "***redacted***":
+        print(
+            "MCP access token: already issued on a previous seed run (idempotent retry "
+            "never re-reveals a secret, per app/commands/base.py's redact_for_audit). "
+            "Issue a new one via gateway.create_access_token if you need it again."
+        )
+    else:
+        print("MCP bearer token (shown once -- save it):")
+        print(f"  {mcp_token}")
 
 
 if __name__ == "__main__":

@@ -114,6 +114,18 @@ class Command[InputT: BaseModel, ResultT: BaseModel](ABC):
         commit/rollback itself -- `tenant_session` owns the transaction boundary.
         """
 
+    def redact_for_audit(self, result: ResultT) -> dict[str, object]:
+        """What gets written to audit_log.result_json. Default: the result as-is.
+
+        Override for a command whose result carries a secret (e.g.
+        gateway.create_access_token's raw bearer token) -- CLAUDE.md's "Never: Log
+        ... tokens ... at INFO level" applies to the audit log too. A command that
+        overrides this makes idempotent retry return the redacted value, not the
+        original secret: a retry after the fact is "this was already issued", not
+        a way to re-read it.
+        """
+        return result.model_dump(mode="json")
+
     async def _find_prior_result(self, idempotency_key: str) -> ResultT | None:
         stmt = select(AuditLog).where(
             AuditLog.tenant_id == self.ctx.tenant_id,
@@ -160,7 +172,7 @@ class Command[InputT: BaseModel, ResultT: BaseModel](ABC):
                 idempotency_key=idempotency_key,
                 correlation_id=self.ctx.correlation_id,
                 input_json=input.model_dump(mode="json"),
-                result_json=result.model_dump(mode="json"),
+                result_json=self.redact_for_audit(result),
             )
         )
         for draft in event_drafts:
