@@ -1,4 +1,4 @@
-.PHONY: dev dev-down migrate test lint typecheck evals golden fmt seed stress serve
+.PHONY: dev dev-down migrate test lint typecheck evals golden fmt seed stress serve quickstart
 
 COMPOSE = docker compose -f infra/docker/docker-compose.yml
 CORE = services/core
@@ -6,6 +6,19 @@ CORE = services/core
 dev: ## bring up Postgres+pgvector, NATS, MinIO, IdP and run migrations
 	$(COMPOSE) up -d
 	$(MAKE) migrate
+
+quickstart: ## one-shot local setup via Docker: bootstrap DB, migrate, seed.
+	## Needs Docker running. If you're on a native (non-Docker) Postgres instead,
+	## its bootstrap step is environment-specific (which superuser, socket vs TCP,
+	## trust vs password) and can't be reliably scripted here -- follow the
+	## "Without Docker" steps in README.md instead, then `make seed`.
+	@command -v docker >/dev/null 2>&1 || { echo "Docker not found. See README.md's 'Without Docker' steps instead."; exit 1; }
+	$(MAKE) dev
+	$(MAKE) seed
+	@echo ""
+	@echo "Database ready and seeded. Now, in two separate terminals:"
+	@echo "  make serve"
+	@echo "  cd apps/web && npm install && npm run dev"
 
 dev-down:
 	$(COMPOSE) down

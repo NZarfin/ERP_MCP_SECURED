@@ -71,22 +71,35 @@ and the remaining Phase 1 exit criteria beyond this slice.
 
 ## Running it
 
+This is a monorepo: a Python API and a separate Next.js web app. They're two
+long-running processes you run in two terminals -- there is no single binary.
+
 ```
-make dev      # Postgres+pgvector, NATS, MinIO, IdP via docker compose, then migrate
-make seed     # populate the demo tenant (produce/herbs wholesaler)
-make serve    # REST API on :8000
+make quickstart   # needs Docker: brings up Postgres, migrates, seeds the demo tenant
+```
+
+Then, in two separate terminals:
+
+```
+make serve                                   # REST API on :8000
+cd apps/web && npm install && npm run dev    # web UI on :3000, needs the API running
+```
+
+Other commands:
+
+```
 make test     # tests against the migrated database
 make stress   # concurrent load + tenant-isolation-under-load check
 make lint     # ruff + mypy --strict (Python); `cd apps/web && npm run lint` for the UI
 ```
 
-Web UI: `cd apps/web && npm install && npm run dev` (needs `make serve` running).
-
-Without Docker (e.g. a local `postgres` service already running):
+Without Docker (e.g. a local `postgres` service already running -- the exact
+superuser/auth setup varies by OS and install method, so this step isn't scripted):
 
 ```
 sudo -u postgres psql -f infra/docker/init-db.sql   # once, creates migrator/app_rw roles
 cd services/core && uv run alembic upgrade head
+uv run --extra dev python -m app.seed               # from services/core
 cd services/core && uv run pytest -q
 ```
 
