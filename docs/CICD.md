@@ -26,3 +26,16 @@ changes to shared `packages/*` it depends on.
 - Environments: local (compose) → preview (optional, per PR) → staging (seeded demo tenants)
   → prod (EU). Silo tenants = same chart, own values file.
 - Infra changes (Terraform) via separate pipeline with plan output on PR and manual apply.
+
+## Roadmap loop
+
+`.github/workflows/roadmap-loop.yml` runs nightly (and on manual dispatch): Claude
+Code reads `CLAUDE.md` and this roadmap, picks one unchecked item from the current
+phase, implements it as one PR-sized change under the same rules a human session
+would follow (command layer contract, RLS, migrations discipline, `make lint && make
+test` green, a self-review against `docs/GUARDRAILS.md` for anything touching
+auth/tenancy/commands/documents/automations), and opens a PR. It never merges its
+own work, never pushes to `main`, and opens an issue instead of guessing when a
+roadmap line is genuinely ambiguous. Requires a `CLAUDE_CODE_OAUTH_TOKEN` (or
+`ANTHROPIC_API_KEY`) repository secret that only a maintainer with repo-admin access
+can add — the workflow file documents where.

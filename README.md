@@ -18,10 +18,10 @@ Read `CLAUDE.md` first — it has the five rules that override everything else. 
 `docs/ARCHITECTURE.md` (what/why), `docs/GUARDRAILS.md` (how safety is enforced) and
 `docs/ROADMAP.md` (build order and current phase).
 
-## Status: Phase 0 — Foundations ✅
+## Status: Phase 0 done, Phase 1 vertical slice done
 
-Everything in `docs/ROADMAP.md`'s Phase 0 is implemented and verified against a real
-PostgreSQL 16 database (not mocked):
+**Phase 0 — Foundations** (`docs/ROADMAP.md`), fully implemented and verified against
+a real PostgreSQL 16 database (not mocked):
 
 - **Tenancy seam** (`services/core/app/db/session.py`): the *only* place a request
   resolves a tenant id. `tenant_session()` opens one transaction and scopes it with
@@ -38,24 +38,49 @@ PostgreSQL 16 database (not mocked):
 - **Command layer** (`services/core/app/commands/base.py`): the single write path.
   Idempotency keys, audit log + transactional outbox in the same DB transaction, and a
   generic **propose → confirm_token → commit** flow for anything that should require
-  confirmation (GUARDRAILS.md §3) — proven end-to-end by a test.
-- **Reference module** `parties.create_customer` (`services/core/app/modules/parties/`)
-  exercises the whole stack: a row, an audit entry and an outbox event in one
-  transaction.
-- **11 passing tests** (`make test`) covering RLS coverage, cross-tenant isolation
-  (including a raw-SQL cross-tenant insert rejected by `WITH CHECK`), DB role
-  restrictions, and the full command lifecycle.
+  confirmation (GUARDRAILS.md §3).
 
-Phases 1–8 (core domain, MCP gateway, documents & invoicing, plugins, automations,
-reporting, commercial readiness) are scoped in `docs/ROADMAP.md` and not started.
+**Phase 1 — vertical slice** (not the full phase; see the scope cuts in the git log for
+this work): sales and purchasing order lifecycles, a filterable web UI, seed/stress
+data. Not started yet: the full catalog/price-list model, full custom-entity types,
+and the remaining Phase 1 exit criteria beyond this slice.
+
+- **Domain modules**: `parties` (customers + suppliers), `catalog` (products),
+  `inventory` (locations + an append-only stock-move ledger, no mutable balance
+  table), `sales` (quote-free order lifecycle: draft → confirmed → delivered/
+  cancelled), `purchasing` (mirrors sales: draft → confirmed → received/cancelled),
+  `custom` (tenant-defined fields, validated JSON-Schema-style on every write, proven
+  on `sales_order.custom`). Every write goes through the command layer; anything
+  touching money/stock is two-phase propose→commit.
+- **REST API** (`services/core/app/api/`): filterable `GET /api/sales/orders` and
+  `GET /api/purchasing/pos` (status, date range, counterparty, amount range,
+  free-text search, sort, pagination, plus an accurate `total_value` aggregate over
+  the whole filtered set) behind the same `X-Tenant-Id` placeholder auth as Phase 0.
+- **`apps/web`**: Next.js 15 + Tailwind `/sales` and `/purchases` pages — read/filter
+  only this pass, see `apps/web/README.md` for the design system.
+- **Seed data** (`make seed`): a deterministic produce/herbs wholesaler demo tenant —
+  10 suppliers, 25 customers, 30 products, 200 sales orders, 100 purchase orders.
+- **Stress test** (`make stress`): concurrent read/write load against a running API,
+  asserting tenant isolation holds under concurrency, not just one request at a time.
+- **Autonomous roadmap loop** (`.github/workflows/roadmap-loop.yml`): nightly, picks
+  the next roadmap item, implements it as one PR-sized change, opens a PR for
+  review. Needs a `CLAUDE_CODE_OAUTH_TOKEN` repo secret to actually run — see that
+  file and `docs/CICD.md`.
+- **27 passing tests** (`make test`) across both phases, plus a real production
+  `next build` and headless-browser verification of both web pages.
 
 ## Running it
 
 ```
 make dev      # Postgres+pgvector, NATS, MinIO, IdP via docker compose, then migrate
-make test     # 11 tests against the migrated database
-make lint     # ruff + mypy --strict
+make seed     # populate the demo tenant (produce/herbs wholesaler)
+make serve    # REST API on :8000
+make test     # tests against the migrated database
+make stress   # concurrent load + tenant-isolation-under-load check
+make lint     # ruff + mypy --strict (Python); `cd apps/web && npm run lint` for the UI
 ```
+
+Web UI: `cd apps/web && npm install && npm run dev` (needs `make serve` running).
 
 Without Docker (e.g. a local `postgres` service already running):
 

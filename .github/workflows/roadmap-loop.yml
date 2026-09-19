@@ -1,0 +1,119 @@
+name: Roadmap loop
+
+# Scheduled autonomous progress on docs/ROADMAP.md. Nightly, Claude Code reads the
+# roadmap and CLAUDE.md, picks the next unchecked item in the current phase,
+# implements it as ONE PR-sized change (never a whole phase at once), runs the same
+# quality gates CI does, and opens a PR for a human to review. It never merges its
+# own work and never pushes to main directly -- see the prompt below, which mirrors
+# CLAUDE.md's own rules for how to work in this repo.
+#
+# Requires a repo secret this workflow cannot set itself: CLAUDE_CODE_OAUTH_TOKEN
+# (Settings -> Secrets and variables -> Actions -> New repository secret). Generate
+# it with `claude setup-token` as a maintainer with write access, or use
+# ANTHROPIC_API_KEY instead (swap the `with:` key below) if you'd rather bill this
+# to an API key than a Claude subscription seat. Until that secret exists, this
+# workflow's runs will simply fail at the Claude step -- everything else in the repo
+# (docs/CICD.md's four stages) is unaffected.
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # nightly, 03:00 UTC
+  workflow_dispatch: {} # allow a manual run to test the loop without waiting for cron
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  advance-roadmap:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.8.17"
+
+      - name: Bootstrap database (roles + migrations), same as CI's migrations stage
+        run: |
+          uv sync --all-packages
+          psql "postgresql://postgres:postgres@localhost:5432/postgres" -f infra/docker/init-db.sql
+          cd services/core && uv run alembic upgrade head
+
+      - name: Configure git identity for the commits Claude will make
+        run: |
+          git config --global user.name "erp-roadmap-bot"
+          git config --global user.email "roadmap-bot@users.noreply.github.com"
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          base_branch: main
+          claude_args: |
+            --max-turns 80
+          prompt: |
+            You are advancing docs/ROADMAP.md for this repository, autonomously,
+            with no human present to ask. Repository: ${{ github.repository }}.
+            Base branch: main.
+
+            Do exactly this, in order:
+
+            1. Read CLAUDE.md in full, then docs/ROADMAP.md. Identify the current
+               phase (the first one with unchecked items) and its exit criteria.
+            2. Pick ONE unchecked item from that phase -- the smallest one that
+               is not already blocked by something else unchecked above it.
+               Do not attempt a whole phase. Do not attempt more than one item.
+            3. Before writing code, think through the change the way CLAUDE.md's
+               "How to work in this repo" section asks: state which module and
+               which contract (command, event, schema) you will touch. If the
+               item is genuinely ambiguous (the roadmap line alone doesn't tell
+               you enough to implement it correctly), do not guess -- instead
+               open a short GitHub issue laying out the ambiguity and the options,
+               and stop for this run.
+            4. Implement it following every rule in CLAUDE.md: the five rules at
+               the top, the command layer contract (Pydantic input, idempotency
+               key, audit log, outbox event, propose/commit for anything touching
+               money/stock/documents), tenant_id + RLS + tenant-leading index on
+               any new table, Decimal/minor-units money, one new Alembic migration
+               (never edit an existing one -- there is a hook for this, respect
+               its intent even though it won't literally fire in this environment).
+               Write tests in the same style already in services/core/tests/.
+            5. Run `make lint` and `make test` (the database is already migrated
+               by this workflow). Both must be green. If they are not, keep
+               fixing -- do not open a PR with failing checks.
+            6. If your change touches auth, tenancy, commands, MCP tools,
+               documents, or automations, review it yourself against
+               docs/GUARDRAILS.md as the security-reviewer subagent
+               (.claude/agents/security-reviewer.md) would: BLOCKER / SHOULD-FIX
+               / NIT with file:line. Fix any BLOCKER before proceeding.
+            7. Commit (do not amend or rewrite history), push to a new branch
+               named `roadmap-loop/<short-description>`, and open a pull request
+               against `main` with: a title naming the roadmap item, a body that
+               quotes the exact ROADMAP.md line you're closing, a summary of the
+               change, and confirmation that `make lint && make test` passed.
+               Do NOT check the box in docs/ROADMAP.md yourself -- leave that
+               and the merge decision to the human reviewer.
+            8. Never merge your own PR. Never push to `main` directly. Never
+               touch a migration that already exists on `main`. Never widen the
+               change beyond the one roadmap item you picked in step 2.
+
+            If nothing in the current phase is safely attemptable without a human
+            decision (everything remaining is ambiguous, or exit criteria for the
+            phase are already met and phase N+1 needs a product decision per
+            docs/ROADMAP.md's "Open decisions" in ARCHITECTURE.md §13), open an
+            issue explaining exactly that instead of forcing a change.
