@@ -12,6 +12,12 @@ jobs:
   # CICD.md stage 1
   static:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # gitleaks-action fetches a short-lived OIDC token to check license
+      # eligibility with its license server -- without this it fails with
+      # "Could not fetch an OIDC token" before it ever runs a scan.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
