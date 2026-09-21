@@ -20,6 +20,12 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks scans a diff against the commit's parent; checkout@v4's
+          # default fetch-depth: 1 (shallow) doesn't fetch that parent, so
+          # gitleaks's `git log HEAD^..HEAD` fails with "unknown revision"
+          # before it can scan anything.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v3
         with:
           version: ${{ env.UV_VERSION }}
