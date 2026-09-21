@@ -20,6 +20,12 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks scans a diff against the commit's parent; checkout@v4's
+          # default fetch-depth: 1 (shallow) doesn't fetch that parent, so
+          # gitleaks's `git log HEAD^..HEAD` fails with "unknown revision"
+          # before it can scan anything.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v3
         with:
           version: ${{ env.UV_VERSION }}
@@ -44,7 +50,6 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           version: ${{ env.UV_VERSION }}
-      - run: uv pip install --system check-jsonschema
       - name: validate schema files
         run: |
           shopt -s globstar nullglob
@@ -52,7 +57,10 @@ jobs:
           if [ ${#files[@]} -eq 0 ]; then
             echo "no schema files yet"; exit 0
           fi
-          check-jsonschema --check-metaschema "${files[@]}"
+          # uvx runs check-jsonschema in its own throwaway venv -- avoids
+          # `uv pip install --system`, which the runner's externally-managed
+          # system Python (PEP 668) now refuses outright.
+          uvx check-jsonschema --check-metaschema "${files[@]}"
 
   # CICD.md stage 3
   migrations:
@@ -73,7 +81,7 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           version: ${{ env.UV_VERSION }}
-      - run: uv sync --all-packages
+      - run: uv sync --all-packages --all-extras
       - name: bootstrap roles (migrator / app_rw)
         run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f infra/docker/init-db.sql
       - name: alembic upgrade / downgrade / upgrade round trip
